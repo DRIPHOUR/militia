@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Country Stick Militia - Arena Upgrade Edition</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Country Stick Militia - Mobile & Desktop Edition</title>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; touch-action: none; user-select: none; }
     body {
       margin: 0;
       background: #0f111a;
@@ -17,20 +17,22 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
+      overflow: hidden;
     }
-    h1 { margin: 10px 0; font-size: 26px; text-transform: uppercase; letter-spacing: 2px; }
+    h1 { margin: 5px 0; font-size: 22px; text-transform: uppercase; letter-spacing: 2px; text-align: center; }
     #setup, #endScreen {
       background: #1a1d28;
-      padding: 25px 40px;
+      padding: 20px 30px;
       border-radius: 12px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
       text-align: center;
       border: 1px solid #2e344a;
       max-width: 480px;
       width: 90%;
+      z-index: 10;
     }
-    .field { margin-bottom: 15px; text-align: left; }
-    label { display: block; margin-bottom: 5px; font-size: 14px; color: #a0a6c0; }
+    .field { margin-bottom: 12px; text-align: left; }
+    label { display: block; margin-bottom: 5px; font-size: 13px; color: #a0a6c0; }
     select, input, button {
       width: 100%;
       padding: 10px;
@@ -47,32 +49,88 @@
       font-weight: bold;
       border: none;
       cursor: pointer;
-      margin-top: 10px;
+      margin-top: 8px;
       transition: background 0.2s;
     }
     button:hover { background: #4338ca; }
     .upgrade-btn { background: #059669; margin-top: 5px; }
     .upgrade-btn:hover { background: #047857; }
-    #canvas {
-      background: linear-gradient(to bottom, #1b263b, #0d1b2a);
-      border: 3px solid #334155;
-      border-radius: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+    
+    #game-container {
+      position: relative;
       display: none;
-      cursor: crosshair;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
     }
     #ui-bar {
-      width: 1000px;
-      display: none;
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
       justify-content: space-between;
-      margin-bottom: 5px;
+      padding: 5px 15px;
       font-size: 16px;
       font-weight: bold;
       color: #facc15;
     }
-    #controls-hint { margin-top: 5px; color: #64748b; font-size: 13px; display: none; }
-    .room-info { background: #111420; padding: 10px; border-radius: 6px; margin: 10px 0; font-size: 24px; color: #22c55e; letter-spacing: 4px; }
-    .stats-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
+    #canvas {
+      background: linear-gradient(to bottom, #1b263b, #0d1b2a);
+      border: 2px solid #334155;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+      touch-action: none;
+    }
+    #controls-hint { margin-top: 4px; color: #64748b; font-size: 12px; text-align: center; }
+    .room-info { background: #111420; padding: 8px; border-radius: 6px; margin: 8px 0; font-size: 22px; color: #22c55e; letter-spacing: 4px; }
+    .stats-row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
+
+    /* Touch Controls Overlay */
+    #touchOverlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      display: none;
+    }
+    .touch-zone {
+      position: absolute;
+      bottom: 20px;
+      pointer-events: auto;
+    }
+    #leftJoystickZone {
+      left: 20px;
+      width: 120px;
+      height: 120px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 2px dashed rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #joystickKnob {
+      width: 50px;
+      height: 50px;
+      background: rgba(79, 70, 229, 0.8);
+      border-radius: 50%;
+      transform: translate(0px, 0px);
+    }
+    #fireBtn {
+      right: 20px;
+      width: 100px;
+      height: 100px;
+      background: rgba(239, 68, 68, 0.7);
+      border: 3px solid #f8fafc;
+      border-radius: 50%;
+      color: #fff;
+      font-weight: bold;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #fireBtn:active { background: rgba(220, 38, 38, 0.9); }
   </style>
 </head>
 <body>
@@ -80,6 +138,14 @@
   <h1>Country Stick Militia</h1>
 
   <div id="setup">
+    <div class="field">
+      <label for="deviceSelect">Select Control Type:</label>
+      <select id="deviceSelect">
+        <option value="desktop">💻 Desktop (Keyboard & Mouse)</option>
+        <option value="mobile">📱 Mobile / Tablet (Touchscreen)</option>
+      </select>
+    </div>
+
     <div class="field">
       <label for="countrySelect">Select Faction/Country:</label>
       <select id="countrySelect">
@@ -95,7 +161,7 @@
     </div>
 
     <button onclick="hostGame()">Host Game (4-Digit Room)</button>
-    <p style="color:#64748b; margin: 10px 0;">— OR —</p>
+    <p style="color:#64748b; margin: 8px 0;">— OR —</p>
 
     <div class="field">
       <label for="joinId">Enter 4-Letter Room Code:</label>
@@ -103,16 +169,25 @@
     </div>
     <button onclick="joinGame()" style="background:#059669;">Join Game</button>
 
-    <div id="status" style="margin-top: 15px; color: #facc15; font-size: 14px;"></div>
+    <div id="status" style="margin-top: 12px; color: #facc15; font-size: 13px;"></div>
   </div>
 
-  <div id="ui-bar">
-    <div id="timerDisplay">Time: 05:00</div>
-    <div id="scoreDisplay">Kills: 0 / 10</div>
-  </div>
+  <div id="game-container">
+    <div id="ui-bar">
+      <div id="timerDisplay">Time: 05:00</div>
+      <div id="scoreDisplay">Kills: 0 / 10</div>
+    </div>
 
-  <canvas id="canvas" width="1000" height="550"></canvas>
-  <div id="controls-hint">Controls: [A/D] Move | [W] Jetpack | [Mouse] Aim | [Left Click] Shoot</div>
+    <canvas id="canvas" width="1000" height="550"></canvas>
+    <div id="controls-hint">Controls: [A/D or Joystick] Move | [W or Joystick Up] Jetpack | [Mouse/Touch] Aim & Shoot</div>
+
+    <div id="touchOverlay">
+      <div id="leftJoystickZone" class="touch-zone">
+        <div id="joystickKnob"></div>
+      </div>
+      <div id="fireBtn" class="touch-zone">FIRE</div>
+    </div>
+  </div>
 
   <!-- End Game / Upgrade Menu -->
   <div id="endScreen" style="display:none;">
@@ -132,41 +207,42 @@
       <button class="upgrade-btn" onclick="upgradeStat('health')">Upgrade Health</button>
     </div>
 
-    <button onclick="restartMatch()" style="margin-top: 20px; background: #3b82f6;">Play Next Match</button>
+    <button onclick="restartMatch()" style="margin-top: 15px; background: #3b82f6;">Play Next Match</button>
   </div>
 
   <script>
-    const PEER_PREFIX = 'csm-v2-';
+    const PEER_PREFIX = 'csm-v3-';
     let peer = null;
     let connections = [];
     let hostConn = null;
     let isHost = false;
     let myId = null;
+    let controlType = 'desktop';
 
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const keys = {};
 
-    let matchTimer = 300; // 5 minutes in seconds
+    let matchTimer = 300;
     let timerInterval = null;
     let gameOver = false;
 
-    // Local player upgrades
+    // Upgrades
     let upgradePoints = 0;
     let stats = { damageLvl: 1, speedLvl: 1, healthLvl: 1 };
 
-    // Game world map platforms
+    // Map platforms
     const platforms = [
-      { x: 0, y: 515, w: 1000, h: 35 },     // Main Ground
-      { x: 150, y: 380, w: 220, h: 15 },    // Low Left Platform
-      { x: 630, y: 380, w: 220, h: 15 },    // Low Right Platform
-      { x: 390, y: 260, w: 220, h: 15 },    // High Middle Platform
-      { x: 100, y: 170, w: 180, h: 15 },    // Top Left Floating Rock
-      { x: 720, y: 170, w: 180, h: 15 }     // Top Right Floating Rock
+      { x: 0, y: 515, w: 1000, h: 35 },     // Ground
+      { x: 150, y: 380, w: 220, h: 15 },    // Low Left
+      { x: 630, y: 380, w: 220, h: 15 },    // Low Right
+      { x: 390, y: 260, w: 220, h: 15 },    // High Mid
+      { x: 100, y: 170, w: 180, h: 15 },    // Top Left
+      { x: 720, y: 170, w: 180, h: 15 }     // Top Right
     ];
 
     let gameState = { players: {}, bullets: [] };
-    let mousePos = { x: 0, y: 0 };
+    let mousePos = { x: 500, y: 250 };
 
     function generateShortCode() {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -177,26 +253,121 @@
       return result;
     }
 
+    // Window Resize Scaling Logic for Mobile/Desktop
+    function resizeCanvas() {
+      const container = document.getElementById('game-container');
+      const padding = controlType === 'mobile' ? 140 : 80;
+      const maxWidth = window.innerWidth - 20;
+      const maxHeight = window.innerHeight - padding;
+
+      const aspect = 1000 / 550;
+      let width = maxWidth;
+      let height = width / aspect;
+
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = height * aspect;
+      }
+
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // Desktop Input Listeners
     window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
 
     canvas.addEventListener('mousemove', e => {
+      if (controlType !== 'desktop') return;
       const rect = canvas.getBoundingClientRect();
-      mousePos.x = e.clientX - rect.left;
-      mousePos.y = e.clientY - rect.top;
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      mousePos.x = (e.clientX - rect.left) * scaleX;
+      mousePos.y = (e.clientY - rect.top) * scaleY;
     });
 
     canvas.addEventListener('mousedown', () => {
+      if (controlType === 'desktop') triggerFire();
+    });
+
+    // Mobile Touch Joystick & Fire Controls
+    const joystickZone = document.getElementById('leftJoystickZone');
+    const joystickKnob = document.getElementById('joystickKnob');
+    const fireBtn = document.getElementById('fireBtn');
+
+    let joystickTouchId = null;
+    let joystickCenter = { x: 0, y: 0 };
+
+    joystickZone.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const touch = e.changedTouches[0];
+      joystickTouchId = touch.identifier;
+      const rect = joystickZone.getBoundingClientRect();
+      joystickCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      handleJoystickMove(touch);
+    });
+
+    joystickZone.addEventListener('touchmove', e => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === joystickTouchId) {
+          handleJoystickMove(e.changedTouches[i]);
+        }
+      }
+    });
+
+    const resetJoystick = () => {
+      joystickKnob.style.transform = `translate(0px, 0px)`;
+      keys['KeyA'] = false;
+      keys['KeyD'] = false;
+      keys['KeyW'] = false;
+      joystickTouchId = null;
+    };
+
+    joystickZone.addEventListener('touchend', resetJoystick);
+    joystickZone.addEventListener('touchcancel', resetJoystick);
+
+    function handleJoystickMove(touch) {
+      const dx = touch.clientX - joystickCenter.x;
+      const dy = touch.clientY - joystickCenter.y;
+      const dist = Math.min(Math.hypot(dx, dy), 40);
+      const angle = Math.atan2(dy, dx);
+
+      const knobX = Math.cos(angle) * dist;
+      const knobY = Math.sin(angle) * dist;
+      joystickKnob.style.transform = `translate(${knobX}px, ${knobY}px)`;
+
+      keys['KeyA'] = dx < -15;
+      keys['KeyD'] = dx > 15;
+      keys['KeyW'] = dy < -10;
+
+      // Update aim direction on movement
+      if (gameState.players[myId]) {
+        const me = gameState.players[myId];
+        mousePos.x = me.x + (dx * 5);
+        mousePos.y = me.y + (dy * 5);
+      }
+    }
+
+    fireBtn.addEventListener('touchstart', e => {
+      e.preventDefault();
+      triggerFire();
+    });
+
+    function triggerFire() {
       if (!myId || gameOver) return;
       if (isHost) {
         spawnBullet(myId);
       } else if (hostConn && hostConn.open) {
         hostConn.send({ type: 'shoot' });
       }
-    });
+    }
 
     function hostGame() {
       isHost = true;
+      controlType = document.getElementById('deviceSelect').value;
       const country = document.getElementById('countrySelect').value;
       const shortCode = generateShortCode();
       const fullPeerId = PEER_PREFIX + shortCode;
@@ -217,9 +388,7 @@
         gameState.players[myId] = createPlayer(myId, country);
       });
 
-      peer.on('error', () => {
-        hostGame(); // Retry code if collision occurs
-      });
+      peer.on('error', () => hostGame());
 
       peer.on('connection', (conn) => {
         connections.push(conn);
@@ -243,6 +412,7 @@
 
     function joinGame() {
       isHost = false;
+      controlType = document.getElementById('deviceSelect').value;
       const rawCode = document.getElementById('joinId').value.trim().toUpperCase();
       const country = document.getElementById('countrySelect').value;
 
@@ -290,7 +460,7 @@
         isFlying: false,
         stats: playerStats,
         keys: {},
-        mousePos: { x: 0, y: 0 }
+        mousePos: { x: 500, y: 250 }
       };
     }
 
@@ -317,9 +487,15 @@
       gameOver = false;
       document.getElementById('setup').style.display = 'none';
       document.getElementById('endScreen').style.display = 'none';
-      document.getElementById('controls-hint').style.display = 'block';
-      document.getElementById('ui-bar').style.display = 'flex';
-      canvas.style.display = 'block';
+      document.getElementById('game-container').style.display = 'flex';
+
+      if (controlType === 'mobile') {
+        document.getElementById('touchOverlay').style.display = 'block';
+      } else {
+        document.getElementById('touchOverlay').style.display = 'none';
+      }
+
+      resizeCanvas();
 
       if (isHost) {
         matchTimer = 300;
@@ -368,9 +544,7 @@
       gameOver = true;
       clearInterval(timerInterval);
 
-      document.getElementById('canvas').style.display = 'none';
-      document.getElementById('ui-bar').style.display = 'none';
-      document.getElementById('controls-hint').style.display = 'none';
+      document.getElementById('game-container').style.display = 'none';
       document.getElementById('endScreen').style.display = 'block';
 
       const me = gameState.players[myId];
@@ -404,7 +578,6 @@
 
     function restartMatch() {
       if (isHost) {
-        // Reset player positions and stats
         Object.keys(gameState.players).forEach(id => {
           const country = gameState.players[id].country;
           const pStats = id === myId ? stats : gameState.players[id].stats;
@@ -427,7 +600,6 @@
         gameState.players[myId].stats = stats;
       }
 
-      // Physics & Platform Collisions
       Object.values(gameState.players).forEach(p => {
         const moveSpeed = 4 + (p.stats.speedLvl - 1) * 0.5;
 
@@ -443,15 +615,12 @@
         }
 
         p.facingLeft = p.mousePos.x < p.x;
-        p.vy += 0.35; // Gravity
+        p.vy += 0.35;
 
-        // Move horizontally
         p.x += p.vx;
         if (p.x < 20) p.x = 20;
         if (p.x > 980) p.x = 980;
 
-        // Move vertically & handle platform landings
-        let onGround = false;
         const prevY = p.y;
         p.y += p.vy;
 
@@ -464,12 +633,10 @@
           ) {
             p.y = plat.y;
             p.vy = 0;
-            onGround = true;
           }
         });
       });
 
-      // Bullets & Collisions
       for (let i = gameState.bullets.length - 1; i >= 0; i--) {
         const b = gameState.bullets[i];
         b.x += b.vx;
@@ -477,7 +644,6 @@
 
         let removed = false;
 
-        // Check platform hits
         platforms.forEach(plat => {
           if (b.x >= plat.x && b.x <= plat.x + plat.w && b.y >= plat.y && b.y <= plat.y + plat.h) {
             gameState.bullets.splice(i, 1);
@@ -485,7 +651,6 @@
           }
         });
 
-        // Check player hits
         if (!removed) {
           Object.values(gameState.players).forEach(p => {
             if (!removed && p.id !== b.owner) {
@@ -497,7 +662,6 @@
                   p.x = 150 + Math.random() * 700;
                   p.y = 100;
 
-                  // Award kill to attacker
                   if (gameState.players[b.owner]) {
                     gameState.players[b.owner].kills++;
                     checkWinConditions();
@@ -515,7 +679,6 @@
         }
       }
 
-      // Broadcast state
       connections.forEach(conn => {
         if (conn.open) conn.send({ type: 'state', state: gameState });
       });
@@ -526,7 +689,6 @@
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Render Map Platforms
       platforms.forEach((plat, idx) => {
         ctx.fillStyle = idx === 0 ? '#1e293b' : '#334155';
         ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
@@ -534,7 +696,6 @@
         ctx.fillRect(plat.x, plat.y, plat.w, 3);
       });
 
-      // Render Bullets
       ctx.fillStyle = '#facc15';
       gameState.bullets.forEach(b => {
         ctx.beginPath();
@@ -542,10 +703,8 @@
         ctx.fill();
       });
 
-      // Render Players
       Object.values(gameState.players).forEach(p => drawStickman(p));
 
-      // Update HUD
       const mins = Math.floor(matchTimer / 60).toString().padStart(2, '0');
       const secs = (matchTimer % 60).toString().padStart(2, '0');
       document.getElementById('timerDisplay').innerText = `Time: ${mins}:${secs}`;
@@ -562,26 +721,22 @@
       ctx.save();
       ctx.translate(p.x, p.y);
 
-      // Health bar
       ctx.fillStyle = '#334155';
       ctx.fillRect(-20, -65, 40, 6);
       ctx.fillStyle = p.health > (p.maxHealth * 0.4) ? '#22c55e' : '#ef4444';
       ctx.fillRect(-20, -65, (p.health / p.maxHealth) * 40, 6);
 
-      // Country Tag & Kills
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = '#ffffff';
       ctx.fillText(`${p.country} (${p.kills}K)`, 0, -45);
 
-      // Stickman Head
       ctx.strokeStyle = '#f8fafc';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(0, -30, 10, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Body & Legs
       ctx.beginPath();
       ctx.moveTo(0, -20);
       ctx.lineTo(0, 0);
@@ -591,7 +746,6 @@
       ctx.lineTo(10, 15);
       ctx.stroke();
 
-      // Jetpack Thruster
       if (p.isFlying) {
         ctx.fillStyle = '#f97316';
         ctx.beginPath();
@@ -601,7 +755,6 @@
         ctx.fill();
       }
 
-      // Gun Arm
       ctx.beginPath();
       ctx.moveTo(0, -15);
       const armLength = 16;
