@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Country Stick Militia Online</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0f111a;
+      color: #fff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    h1 { margin: 10px 0; font-size: 26px; text-transform: uppercase; letter-spacing: 2px; }
+    #setup {
+      background: #1a1d28;
+      padding: 25px 40px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      text-align: center;
+      border: 1px solid #2e344a;
+      max-width: 450px;
+      width: 90%;
+    }
+    .field { margin-bottom: 15px; text-align: left; }
+    label { display: block; margin-bottom: 5px; font-size: 14px; color: #a0a6c0; }
+    select, input, button {
+      width: 100%;
+      padding: 10px;
+      font-size: 15px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #2b3044;
+      color: #fff;
+      outline: none;
+    }
+    button {
+      background: #4f46e5;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover { background: #4338ca; }
+    #canvas {
+      background: linear-gradient(to bottom, #1b263b, #0d1b2a);
+      border: 3px solid #334155;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+      display: none;
+      cursor: crosshair;
+    }
+    #controls-hint { margin-top: 10px; color: #64748b; font-size: 14px; display: none; }
+    .room-info { background: #111420; padding: 10px; border-radius: 6px; margin: 10px 0; word-break: break-all; }
+  </style>
+</head>
+<body>
+
+  <h1>Country Stick Militia</h1>
+
+  <div id="setup">
+    <div class="field">
+      <label for="countrySelect">Select Faction/Country:</label>
+      <select id="countrySelect">
+        <option value="🇳🇬 Nigeria">🇳🇬 Nigeria</option>
+        <option value="🇺🇸 USA">🇺🇸 USA</option>
+        <option value="🇬🇧 UK">🇬🇧 UK</option>
+        <option value="🇯🇵 Japan">🇯🇵 Japan</option>
+        <option value="🇧🇷 Brazil">🇧🇷 Brazil</option>
+        <option value="🇩🇪 Germany">🇩🇪 Germany</option>
+        <option value="🇨🇦 Canada">🇨🇦 Canada</option>
+        <option value="🇫🇷 France">🇫🇷 France</option>
+      </select>
+    </div>
+
+    <button onclick="hostGame()">Host New Game</button>
+    <p style="color:#64748b; margin: 10px 0;">— OR —</p>
+
+    <div class="field">
+      <label for="joinId">Enter Host Room ID:</label>
+      <input type="text" id="joinId" placeholder="Paste Room ID here..." />
+    </div>
+    <button onclick="joinGame()" style="background:#059669;">Join Game</button>
+
+    <div id="status" style="margin-top: 15px; color: #facc15; font-size: 14px;"></div>
+  </div>
+
+  <canvas id="canvas" width="1000" height="550"></canvas>
+  <div id="controls-hint">Controls: [A/D] Move | [W] Jetpack | [Mouse] Aim | [Left Click] Shoot</div>
+
+  <script>
+    let peer = null;
+    let connections = []; // Host: holds all client connections
+    let hostConn = null;  // Client: holds connection to host
+    let isHost = false;
+    let myId = null;
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const keys = {};
+
+    let gameState = { players: {}, bullets: [] };
+    let mousePos = { x: 0, y: 0 };
+
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      mousePos.x = e.clientX - rect.left;
+      mousePos.y = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener('mousedown', () => {
+      if (!myId) return;
+
+      if (isHost) {
+        spawnBullet(myId);
+      } else if (hostConn && hostConn.open) {
+        hostConn.send({ type: 'shoot' });
+      }
+    });
+
+    function hostGame() {
+      isHost = true;
+      const country = document.getElementById('countrySelect').value;
+      document.getElementById('status').innerText = 'Initializing Host Room...';
+
+      peer = new Peer();
+
+      peer.on('open', (id) => {
+        myId = id;
+        document.getElementById('setup').innerHTML = `
+          <h3>Room Created!</h3>
+          <p>Share this Room ID with a friend:</p>
+          <div class="room-info"><b>${id}</b></div>
+          <p style="color:#22c55e;">Waiting for players to join...</p>
+          <button onclick="startGameUI()">Start Local Game Arena</button>
+        `;
+
+        // Register host player in state
+        gameState.players[myId] = createPlayer(myId, country);
+      });
+
+      peer.on('connection', (conn) => {
+        connections.push(conn);
+
+        conn.on('data', (data) => {
+          if (data.type === 'join') {
+            gameState.players[conn.peer] = createPlayer(conn.peer, data.country);
+            conn.send({ type: 'init', id: conn.peer });
+          }
+
+          if (data.type === 'input' && gameState.players[conn.peer]) {
+            const p = gameState.players[conn.peer];
+            p.keys = data.keys;
+            p.mousePos = data.mousePos;
+          }
+
+          if (data.type === 'shoot' && gameState.players[conn.peer]) {
+            spawnBullet(conn.peer);
+          }
+        });
+
+        conn.on('close', () => {
+          delete gameState.players[conn.peer];
+        });
+      });
+    }
+
+    function joinGame() {
+      isHost = false;
+      const hostId = document.getElementById('joinId').value.trim();
+      const country = document.getElementById('countrySelect').value;
+
+      if (!hostId) {
+        alert('Please enter a Host Room ID');
+        return;
+      }
+
+      document.getElementById('status').innerText = 'Connecting to host...';
+      peer = new Peer();
+
+      peer.on('open', (id) => {
+        myId = id;
+        hostConn = peer.connect(hostId);
+
+        hostConn.on('open', () => {
+          hostConn.send({ type: 'join', country });
+          startGameUI();
+        });
+
+        hostConn.on('data', (data) => {
+          if (data.type === 'state') {
+            gameState = data.state;
+          }
+        });
+      });
+    }
+
+    function startGameUI() {
+      document.getElementById('setup').style.display = 'none';
+      document.getElementById('controls-hint').style.display = 'block';
+      canvas.style.display = 'block';
+
+      if (isHost) {
+        // Run physics engine & broadcast loop at 60 FPS
+        setInterval(hostEngineLoop, 1000 / 60);
+      } else {
+        // Client sends inputs to host at 30 FPS
+        setInterval(() => {
+          if (hostConn && hostConn.open) {
+            hostConn.send({ type: 'input', keys, mousePos });
+          }
+        }, 1000 / 30);
+      }
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    function createPlayer(id, country) {
+      return {
+        id,
+        x: 100 + Math.random() * 800,
+        y: 200,
+        vx: 0,
+        vy: 0,
+        health: 100,
+        country: country || '🇳🇬 Player',
+        facingLeft: false,
+        isFlying: false,
+        keys: {},
+        mousePos: { x: 0, y: 0 }
+      };
+    }
+
+    function spawnBullet(ownerId) {
+      const p = gameState.players[ownerId];
+      if (!p) return;
+
+      const targetX = ownerId === myId ? mousePos.x : p.mousePos.x;
+      const targetY = ownerId === myId ? mousePos.y : p.mousePos.y;
+      const angle = Math.atan2(targetY - (p.y - 25), targetX - p.x);
+
+      gameState.bullets.push({
+        owner: ownerId,
+        x: p.x,
+        y: p.y - 25,
+        vx: Math.cos(angle) * 14,
+        vy: Math.sin(angle) * 14
+      });
+    }
+
+    function hostEngineLoop() {
+      // Sync host local inputs directly into state
+      if (gameState.players[myId]) {
+        gameState.players[myId].keys = keys;
+        gameState.players[myId].mousePos = mousePos;
+      }
+
+      // Update Players
+      Object.values(gameState.players).forEach(p => {
+        if (p.keys.KeyA || p.keys.ArrowLeft) p.vx = -4;
+        else if (p.keys.KeyD || p.keys.ArrowRight) p.vx = 4;
+        else p.vx *= 0.8;
+
+        if (p.keys.KeyW || p.keys.ArrowUp) {
+          p.vy -= 0.85;
+          p.isFlying = true;
+        } else {
+          p.isFlying = false;
+        }
+
+        p.facingLeft = p.mousePos.x < p.x;
+
+        p.vy += 0.35; // Gravity
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.y > 500) { p.y = 500; p.vy = 0; }
+        if (p.x < 20) p.x = 20;
+        if (p.x > 980) p.x = 980;
+      });
+
+      // Update Bullets & Hits
+      for (let i = gameState.bullets.length - 1; i >= 0; i--) {
+        const b = gameState.bullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+
+        let removed = false;
+
+        Object.values(gameState.players).forEach(p => {
+          if (!removed && p.id !== b.owner) {
+            const dist = Math.hypot(p.x - b.x, (p.y - 25) - b.y);
+            if (dist < 22) {
+              p.health -= 15;
+              if (p.health <= 0) {
+                p.health = 100;
+                p.x = 100 + Math.random() * 800;
+                p.y = 150;
+              }
+              gameState.bullets.splice(i, 1);
+              removed = true;
+            }
+          }
+        });
+
+        if (!removed && (b.x < 0 || b.x > 1000 || b.y < 0 || b.y > 550)) {
+          gameState.bullets.splice(i, 1);
+        }
+      }
+
+      // Broadcast state to all connected peers
+      connections.forEach(conn => {
+        if (conn.open) conn.send({ type: 'state', state: gameState });
+      });
+    }
+
+    function drawStickman(p) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+
+      // Health bar
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-20, -65, 40, 6);
+      ctx.fillStyle = p.health > 40 ? '#22c55e' : '#ef4444';
+      ctx.fillRect(-20, -65, (p.health / 100) * 40, 6);
+
+      // Country Tag
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(p.country, 0, -45);
+
+      // Head
+      ctx.strokeStyle = '#f8fafc';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, -30, 10, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Body
+      ctx.beginPath();
+      ctx.moveTo(0, -20);
+      ctx.lineTo(0, 0);
+      ctx.stroke();
+
+      // Legs
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-10, 15);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(10, 15);
+      ctx.stroke();
+
+      // Jetpack flame
+      if (p.isFlying) {
+        ctx.fillStyle = '#f97316';
+        ctx.beginPath();
+        ctx.moveTo(-5, -5);
+        ctx.lineTo(0, 12 + Math.random() * 6);
+        ctx.lineTo(5, -5);
+        ctx.fill();
+      }
+
+      // Gun Arm
+      ctx.beginPath();
+      ctx.moveTo(0, -15);
+      const armLength = 16;
+      const angle = p.facingLeft ? Math.PI : 0;
+      ctx.lineTo(Math.cos(angle) * armLength, -15 + Math.sin(angle) * armLength);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function renderLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Terrain
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 515, canvas.width, 35);
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(0, 515, canvas.width, 4);
+
+      // Bullets
+      ctx.fillStyle = '#facc15';
+      gameState.bullets.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Players
+      Object.values(gameState.players).forEach(p => drawStickman(p));
+
+      requestAnimationFrame(renderLoop);
+    }
+  </script>
+</body>
+</html>
