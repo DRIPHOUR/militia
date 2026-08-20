@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Country Stick Militia Online</title>
+  <title>Country Stick Militia - Arena Upgrade Edition</title>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
     * { box-sizing: border-box; }
@@ -19,14 +19,14 @@
       min-height: 100vh;
     }
     h1 { margin: 10px 0; font-size: 26px; text-transform: uppercase; letter-spacing: 2px; }
-    #setup {
+    #setup, #endScreen {
       background: #1a1d28;
       padding: 25px 40px;
       border-radius: 12px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
       text-align: center;
       border: 1px solid #2e344a;
-      max-width: 450px;
+      max-width: 480px;
       width: 90%;
     }
     .field { margin-bottom: 15px; text-align: left; }
@@ -41,14 +41,18 @@
       color: #fff;
       outline: none;
     }
+    input { text-transform: uppercase; letter-spacing: 2px; text-align: center; font-weight: bold; }
     button {
       background: #4f46e5;
       font-weight: bold;
       border: none;
       cursor: pointer;
       margin-top: 10px;
+      transition: background 0.2s;
     }
     button:hover { background: #4338ca; }
+    .upgrade-btn { background: #059669; margin-top: 5px; }
+    .upgrade-btn:hover { background: #047857; }
     #canvas {
       background: linear-gradient(to bottom, #1b263b, #0d1b2a);
       border: 3px solid #334155;
@@ -57,8 +61,18 @@
       display: none;
       cursor: crosshair;
     }
-    #controls-hint { margin-top: 10px; color: #64748b; font-size: 14px; display: none; }
-    .room-info { background: #111420; padding: 10px; border-radius: 6px; margin: 10px 0; word-break: break-all; }
+    #ui-bar {
+      width: 1000px;
+      display: none;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #facc15;
+    }
+    #controls-hint { margin-top: 5px; color: #64748b; font-size: 13px; display: none; }
+    .room-info { background: #111420; padding: 10px; border-radius: 6px; margin: 10px 0; font-size: 24px; color: #22c55e; letter-spacing: 4px; }
+    .stats-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
   </style>
 </head>
 <body>
@@ -80,25 +94,52 @@
       </select>
     </div>
 
-    <button onclick="hostGame()">Host New Game</button>
+    <button onclick="hostGame()">Host Game (4-Digit Room)</button>
     <p style="color:#64748b; margin: 10px 0;">— OR —</p>
 
     <div class="field">
-      <label for="joinId">Enter Host Room ID:</label>
-      <input type="text" id="joinId" placeholder="Paste Room ID here..." />
+      <label for="joinId">Enter 4-Letter Room Code:</label>
+      <input type="text" id="joinId" maxlength="4" placeholder="e.g. X7A2" />
     </div>
     <button onclick="joinGame()" style="background:#059669;">Join Game</button>
 
     <div id="status" style="margin-top: 15px; color: #facc15; font-size: 14px;"></div>
   </div>
 
+  <div id="ui-bar">
+    <div id="timerDisplay">Time: 05:00</div>
+    <div id="scoreDisplay">Kills: 0 / 10</div>
+  </div>
+
   <canvas id="canvas" width="1000" height="550"></canvas>
   <div id="controls-hint">Controls: [A/D] Move | [W] Jetpack | [Mouse] Aim | [Left Click] Shoot</div>
 
+  <!-- End Game / Upgrade Menu -->
+  <div id="endScreen" style="display:none;">
+    <h2 id="winnerText" style="color: #22c55e; margin-top: 0;">Match Finished!</h2>
+    <p>Available Upgrade Points: <b id="pointsText" style="color:#facc15;">0</b></p>
+    
+    <div class="stats-row">
+      <span>Damage (+2 per level): <b id="dmgLvl">1</b></span>
+      <button class="upgrade-btn" onclick="upgradeStat('damage')">Upgrade Damage</button>
+    </div>
+    <div class="stats-row">
+      <span>Speed (+0.5 per level): <b id="spdLvl">1</b></span>
+      <button class="upgrade-btn" onclick="upgradeStat('speed')">Upgrade Speed</button>
+    </div>
+    <div class="stats-row">
+      <span>Max Health (+15 per level): <b id="hpLvl">1</b></span>
+      <button class="upgrade-btn" onclick="upgradeStat('health')">Upgrade Health</button>
+    </div>
+
+    <button onclick="restartMatch()" style="margin-top: 20px; background: #3b82f6;">Play Next Match</button>
+  </div>
+
   <script>
+    const PEER_PREFIX = 'csm-v2-';
     let peer = null;
-    let connections = []; // Host: holds all client connections
-    let hostConn = null;  // Client: holds connection to host
+    let connections = [];
+    let hostConn = null;
     let isHost = false;
     let myId = null;
 
@@ -106,8 +147,35 @@
     const ctx = canvas.getContext('2d');
     const keys = {};
 
+    let matchTimer = 300; // 5 minutes in seconds
+    let timerInterval = null;
+    let gameOver = false;
+
+    // Local player upgrades
+    let upgradePoints = 0;
+    let stats = { damageLvl: 1, speedLvl: 1, healthLvl: 1 };
+
+    // Game world map platforms
+    const platforms = [
+      { x: 0, y: 515, w: 1000, h: 35 },     // Main Ground
+      { x: 150, y: 380, w: 220, h: 15 },    // Low Left Platform
+      { x: 630, y: 380, w: 220, h: 15 },    // Low Right Platform
+      { x: 390, y: 260, w: 220, h: 15 },    // High Middle Platform
+      { x: 100, y: 170, w: 180, h: 15 },    // Top Left Floating Rock
+      { x: 720, y: 170, w: 180, h: 15 }     // Top Right Floating Rock
+    ];
+
     let gameState = { players: {}, bullets: [] };
     let mousePos = { x: 0, y: 0 };
+
+    function generateShortCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let result = '';
+      for (let i = 0; i < 4; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
 
     window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
@@ -119,8 +187,7 @@
     });
 
     canvas.addEventListener('mousedown', () => {
-      if (!myId) return;
-
+      if (!myId || gameOver) return;
       if (isHost) {
         spawnBullet(myId);
       } else if (hostConn && hostConn.open) {
@@ -131,111 +198,97 @@
     function hostGame() {
       isHost = true;
       const country = document.getElementById('countrySelect').value;
-      document.getElementById('status').innerText = 'Initializing Host Room...';
+      const shortCode = generateShortCode();
+      const fullPeerId = PEER_PREFIX + shortCode;
 
-      peer = new Peer();
+      document.getElementById('status').innerText = 'Creating room...';
+      peer = new Peer(fullPeerId);
 
-      peer.on('open', (id) => {
-        myId = id;
+      peer.on('open', () => {
+        myId = fullPeerId;
         document.getElementById('setup').innerHTML = `
           <h3>Room Created!</h3>
-          <p>Share this Room ID with a friend:</p>
-          <div class="room-info"><b>${id}</b></div>
-          <p style="color:#22c55e;">Waiting for players to join...</p>
-          <button onclick="startGameUI()">Start Local Game Arena</button>
+          <p>Share this 4-character code:</p>
+          <div class="room-info"><b>${shortCode}</b></div>
+          <p style="color:#22c55e;">Waiting for opponent to connect...</p>
+          <button onclick="startGameUI()">Start Match</button>
         `;
 
-        // Register host player in state
         gameState.players[myId] = createPlayer(myId, country);
+      });
+
+      peer.on('error', () => {
+        hostGame(); // Retry code if collision occurs
       });
 
       peer.on('connection', (conn) => {
         connections.push(conn);
-
         conn.on('data', (data) => {
           if (data.type === 'join') {
-            gameState.players[conn.peer] = createPlayer(conn.peer, data.country);
+            gameState.players[conn.peer] = createPlayer(conn.peer, data.country, data.stats);
             conn.send({ type: 'init', id: conn.peer });
           }
-
           if (data.type === 'input' && gameState.players[conn.peer]) {
             const p = gameState.players[conn.peer];
             p.keys = data.keys;
             p.mousePos = data.mousePos;
           }
-
           if (data.type === 'shoot' && gameState.players[conn.peer]) {
             spawnBullet(conn.peer);
           }
         });
-
-        conn.on('close', () => {
-          delete gameState.players[conn.peer];
-        });
+        conn.on('close', () => delete gameState.players[conn.peer]);
       });
     }
 
     function joinGame() {
       isHost = false;
-      const hostId = document.getElementById('joinId').value.trim();
+      const rawCode = document.getElementById('joinId').value.trim().toUpperCase();
       const country = document.getElementById('countrySelect').value;
 
-      if (!hostId) {
-        alert('Please enter a Host Room ID');
+      if (rawCode.length !== 4) {
+        alert('Please enter a valid 4-character Room Code.');
         return;
       }
 
-      document.getElementById('status').innerText = 'Connecting to host...';
+      document.getElementById('status').innerText = 'Connecting to room ' + rawCode + '...';
       peer = new Peer();
 
       peer.on('open', (id) => {
         myId = id;
-        hostConn = peer.connect(hostId);
+        hostConn = peer.connect(PEER_PREFIX + rawCode);
 
         hostConn.on('open', () => {
-          hostConn.send({ type: 'join', country });
+          hostConn.send({ type: 'join', country, stats });
           startGameUI();
         });
 
         hostConn.on('data', (data) => {
-          if (data.type === 'state') {
-            gameState = data.state;
-          }
+          if (data.type === 'state') gameState = data.state;
+          if (data.type === 'gameEnd') triggerEndGame(data.winner);
         });
+      });
+
+      peer.on('error', () => {
+        document.getElementById('status').innerText = 'Could not find room code: ' + rawCode;
       });
     }
 
-    function startGameUI() {
-      document.getElementById('setup').style.display = 'none';
-      document.getElementById('controls-hint').style.display = 'block';
-      canvas.style.display = 'block';
-
-      if (isHost) {
-        // Run physics engine & broadcast loop at 60 FPS
-        setInterval(hostEngineLoop, 1000 / 60);
-      } else {
-        // Client sends inputs to host at 30 FPS
-        setInterval(() => {
-          if (hostConn && hostConn.open) {
-            hostConn.send({ type: 'input', keys, mousePos });
-          }
-        }, 1000 / 30);
-      }
-
-      requestAnimationFrame(renderLoop);
-    }
-
-    function createPlayer(id, country) {
+    function createPlayer(id, country, playerStats = stats) {
+      const maxHp = 100 + (playerStats.healthLvl - 1) * 15;
       return {
         id,
-        x: 100 + Math.random() * 800,
-        y: 200,
+        x: 150 + Math.random() * 700,
+        y: 100,
         vx: 0,
         vy: 0,
-        health: 100,
+        health: maxHp,
+        maxHealth: maxHp,
+        kills: 0,
         country: country || '🇳🇬 Player',
         facingLeft: false,
         isFlying: false,
+        stats: playerStats,
         keys: {},
         mousePos: { x: 0, y: 0 }
       };
@@ -248,27 +301,138 @@
       const targetX = ownerId === myId ? mousePos.x : p.mousePos.x;
       const targetY = ownerId === myId ? mousePos.y : p.mousePos.y;
       const angle = Math.atan2(targetY - (p.y - 25), targetX - p.x);
+      const baseDmg = 15 + (p.stats.damageLvl - 1) * 2;
 
       gameState.bullets.push({
         owner: ownerId,
         x: p.x,
         y: p.y - 25,
+        damage: baseDmg,
         vx: Math.cos(angle) * 14,
         vy: Math.sin(angle) * 14
       });
     }
 
+    function startGameUI() {
+      gameOver = false;
+      document.getElementById('setup').style.display = 'none';
+      document.getElementById('endScreen').style.display = 'none';
+      document.getElementById('controls-hint').style.display = 'block';
+      document.getElementById('ui-bar').style.display = 'flex';
+      canvas.style.display = 'block';
+
+      if (isHost) {
+        matchTimer = 300;
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+          if (!gameOver) {
+            matchTimer--;
+            if (matchTimer <= 0) checkWinConditions(true);
+          }
+        }, 1000);
+        setInterval(hostEngineLoop, 1000 / 60);
+      } else {
+        setInterval(() => {
+          if (hostConn && hostConn.open && !gameOver) {
+            hostConn.send({ type: 'input', keys, mousePos });
+          }
+        }, 1000 / 30);
+      }
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    function checkWinConditions(timeExpired = false) {
+      if (gameOver) return;
+
+      let winner = null;
+      const players = Object.values(gameState.players);
+
+      players.forEach(p => {
+        if (p.kills >= 10) winner = p;
+      });
+
+      if (!winner && timeExpired) {
+        winner = players.reduce((max, p) => (p.kills > (max ? max.kills : -1) ? p : max), null);
+      }
+
+      if (winner || (timeExpired && players.length > 0)) {
+        triggerEndGame(winner ? winner.country : 'Nobody');
+        if (isHost) {
+          connections.forEach(conn => conn.send({ type: 'gameEnd', winner: winner ? winner.country : 'Nobody' }));
+        }
+      }
+    }
+
+    function triggerEndGame(winnerName) {
+      gameOver = true;
+      clearInterval(timerInterval);
+
+      document.getElementById('canvas').style.display = 'none';
+      document.getElementById('ui-bar').style.display = 'none';
+      document.getElementById('controls-hint').style.display = 'none';
+      document.getElementById('endScreen').style.display = 'block';
+
+      const me = gameState.players[myId];
+      if (me && me.country === winnerName) {
+        upgradePoints += 3;
+        document.getElementById('winnerText').innerText = '🎉 VICTORY! Winner: ' + winnerName;
+        document.getElementById('winnerText').style.color = '#22c55e';
+      } else {
+        upgradePoints += 1;
+        document.getElementById('winnerText').innerText = '☠️ DEFEAT! Winner: ' + winnerName;
+        document.getElementById('winnerText').style.color = '#ef4444';
+      }
+      updateUpgradeUI();
+    }
+
+    function upgradeStat(statName) {
+      if (upgradePoints <= 0) return;
+      if (statName === 'damage') stats.damageLvl++;
+      if (statName === 'speed') stats.speedLvl++;
+      if (statName === 'health') stats.healthLvl++;
+      upgradePoints--;
+      updateUpgradeUI();
+    }
+
+    function updateUpgradeUI() {
+      document.getElementById('pointsText').innerText = upgradePoints;
+      document.getElementById('dmgLvl').innerText = stats.damageLvl;
+      document.getElementById('spdLvl').innerText = stats.speedLvl;
+      document.getElementById('hpLvl').innerText = stats.healthLvl;
+    }
+
+    function restartMatch() {
+      if (isHost) {
+        // Reset player positions and stats
+        Object.keys(gameState.players).forEach(id => {
+          const country = gameState.players[id].country;
+          const pStats = id === myId ? stats : gameState.players[id].stats;
+          gameState.players[id] = createPlayer(id, country, pStats);
+        });
+        gameState.bullets = [];
+        startGameUI();
+      } else {
+        hostConn.send({ type: 'join', country: gameState.players[myId].country, stats });
+        startGameUI();
+      }
+    }
+
     function hostEngineLoop() {
-      // Sync host local inputs directly into state
+      if (gameOver) return;
+
       if (gameState.players[myId]) {
         gameState.players[myId].keys = keys;
         gameState.players[myId].mousePos = mousePos;
+        gameState.players[myId].stats = stats;
       }
 
-      // Update Players
+      // Physics & Platform Collisions
       Object.values(gameState.players).forEach(p => {
-        if (p.keys.KeyA || p.keys.ArrowLeft) p.vx = -4;
-        else if (p.keys.KeyD || p.keys.ArrowRight) p.vx = 4;
+        const moveSpeed = 4 + (p.stats.speedLvl - 1) * 0.5;
+
+        if (p.keys.KeyA || p.keys.ArrowLeft) p.vx = -moveSpeed;
+        else if (p.keys.KeyD || p.keys.ArrowRight) p.vx = moveSpeed;
         else p.vx *= 0.8;
 
         if (p.keys.KeyW || p.keys.ArrowUp) {
@@ -279,17 +443,33 @@
         }
 
         p.facingLeft = p.mousePos.x < p.x;
-
         p.vy += 0.35; // Gravity
-        p.x += p.vx;
-        p.y += p.vy;
 
-        if (p.y > 500) { p.y = 500; p.vy = 0; }
+        // Move horizontally
+        p.x += p.vx;
         if (p.x < 20) p.x = 20;
         if (p.x > 980) p.x = 980;
+
+        // Move vertically & handle platform landings
+        let onGround = false;
+        const prevY = p.y;
+        p.y += p.vy;
+
+        platforms.forEach(plat => {
+          if (
+            p.x >= plat.x - 10 &&
+            p.x <= plat.x + plat.w + 10 &&
+            prevY <= plat.y &&
+            p.y >= plat.y
+          ) {
+            p.y = plat.y;
+            p.vy = 0;
+            onGround = true;
+          }
+        });
       });
 
-      // Update Bullets & Hits
+      // Bullets & Collisions
       for (let i = gameState.bullets.length - 1; i >= 0; i--) {
         const b = gameState.bullets[i];
         b.x += b.vx;
@@ -297,31 +477,85 @@
 
         let removed = false;
 
-        Object.values(gameState.players).forEach(p => {
-          if (!removed && p.id !== b.owner) {
-            const dist = Math.hypot(p.x - b.x, (p.y - 25) - b.y);
-            if (dist < 22) {
-              p.health -= 15;
-              if (p.health <= 0) {
-                p.health = 100;
-                p.x = 100 + Math.random() * 800;
-                p.y = 150;
-              }
-              gameState.bullets.splice(i, 1);
-              removed = true;
-            }
+        // Check platform hits
+        platforms.forEach(plat => {
+          if (b.x >= plat.x && b.x <= plat.x + plat.w && b.y >= plat.y && b.y <= plat.y + plat.h) {
+            gameState.bullets.splice(i, 1);
+            removed = true;
           }
         });
+
+        // Check player hits
+        if (!removed) {
+          Object.values(gameState.players).forEach(p => {
+            if (!removed && p.id !== b.owner) {
+              const dist = Math.hypot(p.x - b.x, (p.y - 25) - b.y);
+              if (dist < 22) {
+                p.health -= b.damage;
+                if (p.health <= 0) {
+                  p.health = p.maxHealth;
+                  p.x = 150 + Math.random() * 700;
+                  p.y = 100;
+
+                  // Award kill to attacker
+                  if (gameState.players[b.owner]) {
+                    gameState.players[b.owner].kills++;
+                    checkWinConditions();
+                  }
+                }
+                gameState.bullets.splice(i, 1);
+                removed = true;
+              }
+            }
+          });
+        }
 
         if (!removed && (b.x < 0 || b.x > 1000 || b.y < 0 || b.y > 550)) {
           gameState.bullets.splice(i, 1);
         }
       }
 
-      // Broadcast state to all connected peers
+      // Broadcast state
       connections.forEach(conn => {
         if (conn.open) conn.send({ type: 'state', state: gameState });
       });
+    }
+
+    function renderLoop() {
+      if (gameOver) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Render Map Platforms
+      platforms.forEach((plat, idx) => {
+        ctx.fillStyle = idx === 0 ? '#1e293b' : '#334155';
+        ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+        ctx.fillStyle = idx === 0 ? '#3b82f6' : '#10b981';
+        ctx.fillRect(plat.x, plat.y, plat.w, 3);
+      });
+
+      // Render Bullets
+      ctx.fillStyle = '#facc15';
+      gameState.bullets.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Render Players
+      Object.values(gameState.players).forEach(p => drawStickman(p));
+
+      // Update HUD
+      const mins = Math.floor(matchTimer / 60).toString().padStart(2, '0');
+      const secs = (matchTimer % 60).toString().padStart(2, '0');
+      document.getElementById('timerDisplay').innerText = `Time: ${mins}:${secs}`;
+
+      const me = gameState.players[myId];
+      if (me) {
+        document.getElementById('scoreDisplay').innerText = `Kills: ${me.kills} / 10`;
+      }
+
+      requestAnimationFrame(renderLoop);
     }
 
     function drawStickman(p) {
@@ -331,37 +565,33 @@
       // Health bar
       ctx.fillStyle = '#334155';
       ctx.fillRect(-20, -65, 40, 6);
-      ctx.fillStyle = p.health > 40 ? '#22c55e' : '#ef4444';
-      ctx.fillRect(-20, -65, (p.health / 100) * 40, 6);
+      ctx.fillStyle = p.health > (p.maxHealth * 0.4) ? '#22c55e' : '#ef4444';
+      ctx.fillRect(-20, -65, (p.health / p.maxHealth) * 40, 6);
 
-      // Country Tag
-      ctx.font = '13px sans-serif';
+      // Country Tag & Kills
+      ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(p.country, 0, -45);
+      ctx.fillText(`${p.country} (${p.kills}K)`, 0, -45);
 
-      // Head
+      // Stickman Head
       ctx.strokeStyle = '#f8fafc';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(0, -30, 10, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Body
+      // Body & Legs
       ctx.beginPath();
       ctx.moveTo(0, -20);
       ctx.lineTo(0, 0);
-      ctx.stroke();
-
-      // Legs
-      ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(-10, 15);
       ctx.moveTo(0, 0);
       ctx.lineTo(10, 15);
       ctx.stroke();
 
-      // Jetpack flame
+      // Jetpack Thruster
       if (p.isFlying) {
         ctx.fillStyle = '#f97316';
         ctx.beginPath();
@@ -380,29 +610,6 @@
       ctx.stroke();
 
       ctx.restore();
-    }
-
-    function renderLoop() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Terrain
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 515, canvas.width, 35);
-      ctx.fillStyle = '#3b82f6';
-      ctx.fillRect(0, 515, canvas.width, 4);
-
-      // Bullets
-      ctx.fillStyle = '#facc15';
-      gameState.bullets.forEach(b => {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // Players
-      Object.values(gameState.players).forEach(p => drawStickman(p));
-
-      requestAnimationFrame(renderLoop);
     }
   </script>
 </body>
